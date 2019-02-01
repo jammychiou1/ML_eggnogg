@@ -11,12 +11,17 @@ import environment
 gamma = 0.999
 
 model = model.Model()
-criterion = nn.MSELoss()
 optimizer = optim.Adam(model.parameters(), lr = 0.0001)
+
+if os.file.exists('checkpoint.pt'):
+    checkpoint = torch.load('checkpoint.pt')
+    model.state_dict = checkpoint['model']
+    optimizer.state_dict = checkpoint['optimizer']
+    trained_episode = checkpoint['episode']
 
 environment.init()
 
-for episode in range(100):
+for episode in range(trained_episode, trained_episode+1000):
     step = 0
     
     environment.reset()
@@ -50,6 +55,7 @@ for episode in range(100):
             if step % 300 == 0: #100 sec 300
                 tmp = time.time()
                 keyboard.tap('Escape')
+                torch.save('checkpoint.pt', {'model': model.state_dict, 'optimizer': optimizer.state_dict, 'episode': episode})
                 environment.checkpoint(episode)
                 #avg_loss = 0
                 print('training')
