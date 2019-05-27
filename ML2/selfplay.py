@@ -1,0 +1,166 @@
+import time
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.optim as optim
+import os
+
+import keyboard
+import control
+import model as md
+import environment
+import autoencoder as ae
+
+def train(i_train):
+    global model, model_tar, encoder, encoder_tar, decoder, optimizer, gamma
+    sel, ind, data = environment.sample()
+    #print('sampling done')
+    screens, key1s, key2s, action1, action2, rew1, rew2, terminal = data
+    ima = torch.Tensor(screens)
+    ima_ = decoder(encoder(ima))
+    
+    ae_loss = nn.L1Loss(reduction='mean')(ima, ima_)
+    
+    codes = encoder(ima).detach().numpy()
+    codes_tar = encoder_tar(torch.Tensor(screens)).detach().numpy()
+    
+    q_tar1 = 0
+    q_tar2 = 0
+    #print(codes.shape)
+    #print(key1s.shape)
+    #print(key1s.shape)
+    #print(np.concatenate([codes[1:].flatten(), keys1[1:].flatten(), [0]])[np.newaxis, :].shape)
+    
+    if not terminal:
+        state1b = torch.Tensor(np.concatenate([codes[1:].flatten(), key1s[1:].flatten(), [0]])[np.newaxis, :])
+        state2b = torch.Tensor(np.concatenate([codes[1:].flatten(), key2s[1:].flatten(), [1]])[np.newaxis, :])
+        argmax1 = torch.argmax(model(state1b))
+        argmax2 = torch.argmax(model(state2b))
+        state1b_tar = torch.Tensor(np.concatenate([codes_tar[1:].flatten(), key1s[1:].flatten(), [0]]))
+        state2b_tar = torch.Tensor(np.concatenate([codes_tar[1:].flatten(), key2s[1:].flatten(), [1]]))
+        tar_out1 = model_tar(state1b_tar).detach().numpy()
+        tar_out2 = model_tar(state2b_tar).detach().numpy()
+        q_tar1 = tar_out1[argmax1] * gamma
+        q_tar2 = tar_out2[argmax2] * gamma
+    
+    q_tar1 += rew1
+    q_tar2 += rew2
+    state1a = torch.Tensor(np.concatenate([codes[:-1].flatten(), key1s[:-1].flatten(), [0]])[np.newaxis, :])
+    state2a = torch.Tensor(np.concatenate([codes[:-1].flatten(), key2s[:-1].flatten(), [1]])[np.newaxis, :])
+    q_now1 = model(torch.Tensor(state1a))[0][action1]
+    q_now2 = model(torch.Tensor(state2a))[0][action2]
+    td_loss = ((q_tar1 - q_now1) ** 2 + (q_tar2 - q_now2) ** 2)
+    environment.update_tdE(sel, ind, td_loss.item())
+    
+    loss = ae_loss + td_loss
+    print(i_train, ae_loss.item(), td_loss.item())
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+
+gamma = 0.75
+
+model = md.Model()
+model_tar = md.Model()
+encoder = ae.Encoder()
+encoder_tar = ae.Encoder()
+decoder = ae.Decoder()
+optimizer = optim.Adam(model.parameters(), lr = 0.0001)
+trained_episode = 0
+
+if os.path.isfile('checkpoint.pt'):
+    checkpoint = torch.load('checkpoint.pt')
+    model.load_state_dict(checkpoint['model'])
+    encoder.load_state_dict(checkpoint['encoder'])
+    decoder.load_state_dict(checkpoint['decoder'])
+    optimizer.load_state_dict(checkpoint['optimizer'])
+    trained_episode = checkpoint['episode']
+
+environment.init()
+
+for episode in range(trained_episode, trained_episode+1000):
+    print('Episode {} start'.format(episode))
+    step = 0
+    
+    model_tar.load_state_dict(model.state_dict())
+    encoder_tar.load_state_dict(encoder.state_dict())
+    
+    environment.reset()
+    
+    last = time.time()
+    
+    codes = np.zeros([8, 20], dtype=np.float)
+    keys1 = np.zeros([8, 6], dtype=np.float)
+    keys2 = np.zeros([8, 6], dtype=np.float)
+    while True:
+        now = time.time()
+        if now - last > 1/3:
+            #print('FPS: {}'.format(1/(now - last)))
+            last = now
+            
+            scr, winner, rew1, rew2 = environment.observe()
+            
+            scr = scr / 256
+            code = encoder(torch.Tensor(scr[np.newaxis, :])).detach().numpy()
+            state1 = np.concatenate([codes.flatten(), code.flatten(), keys1.flatten(), [0]])
+            state2 = np.concatenate([codes.flatten(), code.flatten(), keys2.flatten(), [1]])
+            q1 = model(torch.Tensor(state1[np.newaxis, :]))[0]
+            q2 = model(torch.Tensor(state2[np.newaxis, :]))[0]
+            print('q1:', q1)
+            print('q2:', q2)
+            if step != 0:
+                q_tar1 = 0
+                q_tar2 = 0
+                if winner == 0:
+                    q_tar1 = model_tar(torch.Tensor(state1[np.newaxis, :]))[0, torch.argmax(q1)].item() * gamma
+                    q_tar2 = model_tar(torch.Tensor(state2[np.newaxis, :]))[0, torch.argmax(q2)].item() * gamma
+                q_tar1 += rew1
+                q_tar2 += rew2
+                environment.save_tdE((q_tar1 - q_old1) ** 2, (q_tar2 - q_old2) ** 2)
+            if winner != 0:
+                keyboard.tap('Escape')
+                environment.finish(episode, winner)
+                keyboard.tap('Escape')
+                environment.quit()
+                break
+            if np.random.rand() < 0.75:
+                act1 = np.random.randint(36)
+            else:
+                act1 = torch.argmax(q1).item()
+            if np.random.rand() < 0.75:
+                act2 = np.random.randint(36)
+            else:
+                act2 = torch.argmax(q2).item()
+            #print(act1, act2)
+            environment.act(act1, act2)
+            q_old1 = q1[act1]
+            q_old2 = q2[act2]
+            
+            codes[:-1] = codes[1:]
+            keys1[:-1] = keys1[1:]
+            keys2[:-1] = keys2[1:]
+            codes[-1] = code
+            keys1[-1] = control.act_to_key(act1)
+            keys2[-1] = control.act_to_key(act2)
+            
+            step += 1
+            
+            if step % 300 == 0: #100 sec 300
+                tmp = time.time()
+                keyboard.tap('Escape')
+                
+                environment.checkpoint(episode)
+                
+                print('Training')
+                #for i_train in range(200):
+                    #train(i_train)
+                
+                torch.save({'model': model.state_dict(), 'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(),
+                            'optimizer': optimizer.state_dict(), 'episode': episode}, 'checkpoint.pt')
+                
+                keyboard.tap('Escape')
+                last += time.time() - tmp
+            if step == 1800: #10 min
+                environment.quit()
+                break
+        
