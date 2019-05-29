@@ -11,61 +11,66 @@ import model as md
 import environment
 import autoencoder as ae
 
+import gc
+
 def train(i_train):
     global model, model_tar, encoder, encoder_tar, decoder, optimizer, gamma
-    sel, ind, data = environment.sample()
+    train_sel, train_ind, train_data = environment.sample()
     #print('sampling done')
-    screens, key1s, key2s, action1, action2, rew1, rew2, terminal = data
-    ima = torch.Tensor(screens)
-    ima_ = decoder(encoder(ima))
+    train_screens, train_key1s, train_key2s, train_action1, train_action2, train_rew1, train_rew2, train_terminal = train_data
+    train_ima = torch.Tensor(train_screens)
+    train_ima_ = decoder(encoder(train_ima))
     
-    ae_loss = nn.L1Loss(reduction='mean')(ima, ima_)
+    train_ae_loss = nn.L1Loss(reduction='mean')(train_ima, train_ima_)
     
-    codes = encoder(ima).detach().numpy()
-    codes_tar = encoder_tar(torch.Tensor(screens)).detach().numpy()
+    train_codes = encoder(train_ima).detach().numpy()
+    train_codes_tar = encoder_tar(train_ima).detach().numpy()
     
-    q_tar1 = 0
-    q_tar2 = 0
+    train_q_tar1 = 0
+    train_q_tar2 = 0
     #print(codes.shape)
     #print(key1s.shape)
     #print(key1s.shape)
     #print(np.concatenate([codes[1:].flatten(), keys1[1:].flatten(), [0]])[np.newaxis, :].shape)
     
-    if not terminal:
-        state1b = torch.Tensor(np.concatenate([codes[1:].flatten(), key1s[1:].flatten(), [0]])[np.newaxis, :])
-        state2b = torch.Tensor(np.concatenate([codes[1:].flatten(), key2s[1:].flatten(), [1]])[np.newaxis, :])
-        argmax1 = torch.argmax(model(state1b))
-        argmax2 = torch.argmax(model(state2b))
-        state1b_tar = torch.Tensor(np.concatenate([codes_tar[1:].flatten(), key1s[1:].flatten(), [0]]))
-        state2b_tar = torch.Tensor(np.concatenate([codes_tar[1:].flatten(), key2s[1:].flatten(), [1]]))
-        tar_out1 = model_tar(state1b_tar).detach().numpy()
-        tar_out2 = model_tar(state2b_tar).detach().numpy()
-        q_tar1 = tar_out1[argmax1] * gamma
-        q_tar2 = tar_out2[argmax2] * gamma
+    if not train_terminal:
+        train_state1b = torch.Tensor(np.concatenate([train_codes[1:].flatten(), train_key1s[1:].flatten(), [0]]))
+        train_state2b = torch.Tensor(np.concatenate([train_codes[1:].flatten(), train_key2s[1:].flatten(), [1]]))
+        train_argmax1 = torch.argmax(model(train_state1b)).item()
+        train_argmax2 = torch.argmax(model(train_state2b)).item()
+        train_state1b_tar = torch.Tensor(np.concatenate([train_codes_tar[1:].flatten(), train_key1s[1:].flatten(), [0]]))
+        train_state2b_tar = torch.Tensor(np.concatenate([train_codes_tar[1:].flatten(), train_key2s[1:].flatten(), [1]]))
+        train_tar_out1 = model_tar(train_state1b_tar).detach().numpy()
+        train_tar_out2 = model_tar(train_state2b_tar).detach().numpy()
+        train_q_tar1 = train_tar_out1[train_argmax1] * gamma
+        train_q_tar2 = train_tar_out2[train_argmax2] * gamma
+        #del state1b, state2b, argmax1, argmax2, state1b_tar, state2b_tar, tar_out1, tar_out2
     
-    q_tar1 += rew1
-    q_tar2 += rew2
-    state1a = torch.Tensor(np.concatenate([codes[:-1].flatten(), key1s[:-1].flatten(), [0]])[np.newaxis, :])
-    state2a = torch.Tensor(np.concatenate([codes[:-1].flatten(), key2s[:-1].flatten(), [1]])[np.newaxis, :])
-    q_now1 = model(torch.Tensor(state1a))[0][action1]
-    q_now2 = model(torch.Tensor(state2a))[0][action2]
-    td_loss = ((q_tar1 - q_now1) ** 2 + (q_tar2 - q_now2) ** 2)
-    environment.update_tdE(sel, ind, td_loss.item())
+    train_q_tar1 += train_rew1
+    train_q_tar2 += train_rew2
+    train_state1a = torch.Tensor(np.concatenate([train_codes[:-1].flatten(), train_key1s[:-1].flatten(), [0]]))
+    train_state2a = torch.Tensor(np.concatenate([train_codes[:-1].flatten(), train_key2s[:-1].flatten(), [1]]))
+    train_q_now1 = model(torch.Tensor(train_state1a))[train_action1]
+    train_q_now2 = model(torch.Tensor(train_state2a))[train_action2]
+    train_td_loss = ((train_q_tar1 - train_q_now1) ** 2 + (train_q_tar2 - train_q_now2) ** 2)
+    environment.update_tdE(train_sel, train_ind, train_td_loss.item())
     
-    loss = ae_loss + td_loss
-    print(i_train, ae_loss.item(), td_loss.item())
+    train_loss = train_ae_loss + train_td_loss
+    #print(i_train, train_ae_loss.item(), train_td_loss.item())
     optimizer.zero_grad()
-    loss.backward()
+    train_loss.backward()
     optimizer.step()
+    #del q_tar1, q_tar2, state1a, state2a, q_now1, q_now2, td_loss, loss, ae_loss, ima, ima_, codes, codes_tar, screens, key1s, key2s, action1, action2, rew1, rew2, terminal, data, sel, ind
+    
 
-gamma = 0.75
+gamma = 0.80
 
 model = md.Model()
 model_tar = md.Model()
 encoder = ae.Encoder()
 encoder_tar = ae.Encoder()
 decoder = ae.Decoder()
-optimizer = optim.Adam(model.parameters(), lr = 0.0001)
+optimizer = optim.Adam(model.parameters(), lr = 0.01)
 trained_episode = 0
 
 if os.path.isfile('checkpoint.pt'):
@@ -104,10 +109,10 @@ for episode in range(trained_episode, trained_episode+1000):
             code = encoder(torch.Tensor(scr[np.newaxis, :])).detach().numpy()
             state1 = np.concatenate([codes.flatten(), code.flatten(), keys1.flatten(), [0]])
             state2 = np.concatenate([codes.flatten(), code.flatten(), keys2.flatten(), [1]])
-            q1 = model(torch.Tensor(state1[np.newaxis, :]))[0]
-            q2 = model(torch.Tensor(state2[np.newaxis, :]))[0]
-            print('q1:', q1)
-            print('q2:', q2)
+            q1 = model(torch.Tensor(state1))
+            q2 = model(torch.Tensor(state2))
+            #print('q1:', q1.detach().numpy())
+            #print('q2:', q2.detach().numpy())
             if step != 0:
                 q_tar1 = 0
                 q_tar2 = 0
@@ -151,9 +156,33 @@ for episode in range(trained_episode, trained_episode+1000):
                 
                 environment.checkpoint(episode)
                 
+                '''
+                cnt = 0
+                for obj in gc.get_objects():
+                    try:
+                        if type(obj).__module__ == torch.__name__:
+                            cnt += 1
+                    except:
+                        pass
+                '''
+                print("before {}".format(len(gc.get_objects())))
+                
                 print('Training')
-                #for i_train in range(200):
-                    #train(i_train)
+                for i_train in range(100):
+                    train(i_train)
+                    
+                print(len(gc.get_objects()))
+                
+                '''
+                cnt = 0
+                for obj in gc.get_objects():
+                    try:
+                        if type(obj).__module__ == torch.__name__:
+                            cnt += 1
+                    except:
+                        pass
+                '''
+                print("after {}".format(len(gc.get_objects())))
                 
                 torch.save({'model': model.state_dict(), 'encoder': encoder.state_dict(), 'decoder': decoder.state_dict(),
                             'optimizer': optimizer.state_dict(), 'episode': episode}, 'checkpoint.pt')

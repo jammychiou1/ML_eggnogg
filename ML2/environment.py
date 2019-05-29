@@ -101,62 +101,62 @@ def quit():
     keyboard.tap('V')
 
 def extract(directory, length, winner, p):
-    ind = np.random.choice(np.arange(1, length), p=p)
+    ext_ind = np.random.choice(np.arange(1, length), p=p)
     
-    screens = np.zeros([10, 3, 240, 160], dtype=np.float)
-    key1s = np.zeros([9, 6], dtype=np.float)
-    key2s = np.zeros([9, 6], dtype=np.float)
-    action1 = 0
-    action2 = 0
-    tmp_rooms = [5, 5]
-    rew1 = 0
-    rews = 0
-    terminal = (winner != 0 and ind == length-1)
+    ext_screens = np.zeros([10, 3, 240, 160], dtype=np.float)
+    ext_key1s = np.zeros([9, 6], dtype=np.float)
+    ext_key2s = np.zeros([9, 6], dtype=np.float)
+    ext_action1 = 0
+    ext_action2 = 0
+    ext_tmp_rooms = [5, 5]
+    ext_rew1 = 0
+    ext_rews = 0
+    ext_terminal = (winner != 0 and ext_ind == length-1)
     #print(terminal)
     
     num_files = (length - 1) // 300 + 1
     for i in range(num_files):
-        arrs = np.load(directory + str(i) + '.npz')
-        scrs = arrs['screens']
-        ctrls1 = arrs['controls1']
-        ctrls2 = arrs['controls2']
-        rms = arrs['rooms']
+        ext_arrs = np.load(directory + str(i) + '.npz')
+        ext_scrs = ext_arrs['screens']
+        ext_ctrls1 = ext_arrs['controls1']
+        ext_ctrls2 = ext_arrs['controls2']
+        ext_rms = ext_arrs['rooms']
         for k in range(10):
-            loc = ind-9+k
+            loc = ext_ind-9+k
             if 300 * i <= loc < 300 * (i+1):
-                screens[k] = scrs[loc % 300] / 256
+                ext_screens[k] = ext_scrs[loc % 300] / 256
         for k in range(9):
-            loc = ind-9+k
+            loc = ext_ind-9+k
             if 300 * i <= loc < 300 * (i+1):
-                tmp_act1 = ctrls1[loc % 300]
-                tmp_act2 = ctrls2[loc % 300]
-                key1s[k] = control.act_to_key(tmp_act1)
-                key2s[k] = control.act_to_key(tmp_act2)
-        loc = ind-1
+                ext_tmp_act1 = ext_ctrls1[loc % 300]
+                ext_tmp_act2 = ext_ctrls2[loc % 300]
+                ext_key1s[k] = control.act_to_key(ext_tmp_act1)
+                ext_key2s[k] = control.act_to_key(ext_tmp_act2)
+        loc = ext_ind-1
         if 300 * i <= loc < 300 * (i+1):
-            action1 = ctrls1[loc % 300]
-            action2 = ctrls2[loc % 300]
-            tmp_rooms[0] = rms[loc % 300]
-        loc = ind
+            ext_action1 = ext_ctrls1[loc % 300]
+            ext_action2 = ext_ctrls2[loc % 300]
+            ext_tmp_rooms[0] = ext_rms[loc % 300]
+        loc = ext_ind
         if 300 * i <= loc < 300 * (i+1):
-            tmp_rooms[1] = rms[loc % 300]
-        arrs.close()
-    if tmp_rooms[1] == 0:
-        rew1 = -5
-        rew2 = 5
-    elif tmp_rooms[1] == 10:
-        rew1 = 5
-        rew2 = -5        
-    elif tmp_rooms[0] < tmp_rooms[1]:
-        rew1 = 1
-        rew2 = -1        
-    elif tmp_rooms[0] > tmp_rooms[1]:
-        rew1 = -1
-        rew2 = 1        
+            ext_tmp_rooms[1] = ext_rms[loc % 300]
+        ext_arrs.close()
+    if ext_tmp_rooms[1] == 0:
+        ext_rew1 = -5
+        ext_rew2 = 5
+    elif ext_tmp_rooms[1] == 10:
+        ext_rew1 = 5
+        ext_rew2 = -5        
+    elif ext_tmp_rooms[0] < ext_tmp_rooms[1]:
+        ext_rew1 = 1
+        ext_rew2 = -1        
+    elif ext_tmp_rooms[0] > ext_tmp_rooms[1]:
+        ext_rew1 = -1
+        ext_rew2 = 1        
     else:
-        rew1 = 0
-        rew2 = 0
-    return ind-1, (screens, key1s, key2s, action1, action2, rew1, rew2, terminal)
+        ext_rew1 = 0
+        ext_rew2 = 0
+    return ext_ind-1, (ext_screens, ext_key1s, ext_key2s, ext_action1, ext_action2, ext_rew1, ext_rew2, ext_terminal)
     
 def sample():
     while True:

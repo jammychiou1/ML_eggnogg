@@ -21,7 +21,7 @@ class Model(nn.Module):
         #print(x.shape)
         x = x.view(-1, 40)
         x = F.relu(self.fc1(x))
-        return self.q(x)
+        return 20 * torch.tanh(self.q(x))
         
 if __name__ == '__main__':
     model = Model()
